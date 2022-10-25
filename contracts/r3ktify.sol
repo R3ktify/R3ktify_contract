@@ -1,14 +1,13 @@
 //SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.7;
 
-import "@openzeppelin/contracts/access/AccessControl.sol";
+// import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
-import {ByteHasher} from "./helpers/ByteHasher.sol";
-import {IWorldID} from "./interfaces/IWorldID.sol";
 
-contract R3ktify is AccessControl {
-    using ByteHasher for bytes;
+contract R3ktify is Ownable {
+    // using ByteHasher for bytes;
     using Counters for Counters.Counter;
     Counters.Counter private _bountyId;
     Counters.Counter private _reportId;
@@ -27,7 +26,7 @@ contract R3ktify is AccessControl {
     bytes32 public constant R3KTIFIER = keccak256("R3KTIFIER");
 
     // immutables
-    IWorldID internal immutable worldId;
+    // IWorldID internal immutable worldId;
 
     // temporary ban time
     uint256 public constant TEMPORARY_BAN_TIME = 24 hours;
@@ -64,7 +63,12 @@ contract R3ktify is AccessControl {
         string projectURI;
     }
 
+    // array
+    address[] public projectAddresses;
+    ProjectBounty[] public projectBounties;
+
     // mappings
+    mapping(address => bytes32) private _roles;
     mapping(address => ProjectBounty[]) public bounties;
     mapping(uint256 => Report[]) public reports;
     mapping(address => bool) public registeredProjects;
@@ -78,94 +82,105 @@ contract R3ktify is AccessControl {
         address project
     );
 
-    // array
-    address[] public projects;
-
     // WorldID group IDs
     uint256 internal immutable projectGroupId = 1;
     uint256 internal immutable r3ktifierGroupId = 2;
 
     // errors
-    error alreadyRegistered();
-    error notAProject();
-    error notAR3ktifier();
+    // error alreadyRegistered;
+    // error notAProject;
+    // error notAR3ktifier;
+
+    // events
+    event RoleGranted(
+        bytes32 indexed role,
+        address indexed account,
+        address indexed sender
+    );
 
     // modifiers
+    modifier onlyAdminRole(address account) {
+        // revert if msg.sender is not a Project
+        require(hasRole(ADMIN_ROLE, account), "Not an ADMIN");
+        _;
+    }
+
     modifier onlyProjectRole(address account) {
         // revert if msg.sender is not a Project
-        if (!hasRole(PROJECT_ROLE, account)) revert notAProject();
+        require(hasRole(PROJECT_ROLE, account), "Not a PROJECT");
         _;
     }
 
     modifier onlyR3ktifierRole(address account) {
         // revert if msg.sender is not a R3ktifier
-        if (!hasRole(R3KTIFIER, account)) revert notAR3ktifier();
+        require(hasRole(R3KTIFIER_ROLE, account), "Not a R3KTIFIER");
         _;
     }
 
-    constructor(IWorldID _worldID) {
-        // set contract as admin for AccessControl
-        _setupRole(ADMIN_ROLE, address(this));
-        worldId = _worldID;
+    constructor() {
+        setAdminRole(ADMIN_ROLE, msg.sender);
     }
 
     // TODO: Implement register function, should accept accountType (project, r3ktifier)
     // TODO: and assign respective role to the account
+    // address input,
+    //     uint256 root,
+    //     uint256 nullifierHash,
+    //     uint256[8] calldata proof
 
-    function register(
-        bytes32 accountType,
-        address input,
-        uint256 root,
-        uint256 nullifierHash,
-        uint256[8] calldata proof
-    ) public {
+    function register(string memory accountType, address accountAddress)
+        public
+        payable
+        onlyAdminRole(msg.sender)
+    {
+        bytes32 _accountType = keccak256(abi.encodePacked(accountType));
         // require accountType is one of the accepted types
         require(
-            accountType == PROJECT || accountType == R3KTIFIER,
+            _accountType == PROJECT || _accountType == R3KTIFIER,
             "Unknown account type"
         );
 
         // check if user is already registered, revert if true.
-        if (
-            registeredProjects[address(msg.sender)] ||
-            registeredR3ktifiers[address(msg.sender)]
-        ) revert alreadyRegistered();
+        require(
+            !registeredProjects[accountAddress] ||
+                !registeredR3ktifiers[accountAddress]
+        );
 
-        if (accountType == PROJECT) {
+        if (_accountType == PROJECT) {
             // verify user
-            worldId.verifyProof(
-                root,
-                projectGroupId,
-                abi.encodePacked(input).hashToField(),
-                nullifierHash,
-                abi.encodePacked(address(this)).hashToField(),
-                proof
-            );
+            // worldId.verifyProof(
+            //     root,
+            //     projectGroupId,
+            //     abi.encodePacked(input).hashToField(),
+            //     nullifierHash,
+            //     abi.encodePacked(address(this)).hashToField(),
+            //     proof
+            // );
 
             // add the user to the registeredProjects and set role
-            grantRole(PROJECT_ROLE, address(msg.sender));
-            registeredProjects[address(msg.sender)] = true;
+            registeredProjects[address(accountAddress)] = true;
 
             // add msg.sender to projects array
-            projects.push(msg.sender);
-        } else {
-            // check if user is already registered
-            if (registeredR3ktifiers[address(msg.sender)])
-                revert alreadyRegistered();
+            _roles[accountAddress] = PROJECT_ROLE;
+            projectAddresses.push(accountAddress);
 
+            emit RoleGranted(PROJECT_ROLE, msg.sender, address(this));
+        } else {
             // verify user
-            worldId.verifyProof(
-                root,
-                r3ktifierGroupId,
-                abi.encodePacked(input).hashToField(),
-                nullifierHash,
-                abi.encodePacked(address(this)).hashToField(),
-                proof
-            );
+            // worldId.verifyProof(
+            //     root,
+            //     r3ktifierGroupId,
+            //     abi.encodePacked(input).hashToField(),
+            //     nullifierHash,
+            //     abi.encodePacked(address(this)).hashToField(),
+            //     proof
+            // );
 
             // add the user to the registeredR3ktifiers and set role
-            grantRole(R3KTIFIER_ROLE, address(msg.sender));
-            registeredR3ktifiers[address(msg.sender)] = true;
+            _roles[accountAddress] = R3KTIFIER_ROLE;
+            registeredR3ktifiers[accountAddress] = true;
+
+            emit RoleGranted(R3KTIFIER_ROLE, accountAddress, msg.sender);
         }
     }
 
@@ -177,7 +192,7 @@ contract R3ktify is AccessControl {
     ) public onlyProjectRole(address(msg.sender)) {
         // revert if uri = empty string and rewardBreakdown has 6 values
         require(bytes(_projectURI).length != 0, "Project URI needed");
-        require(_rewardBreakdown.length == 6, "6 reward values needed");
+        require(_rewardBreakdown.length == 5, "5 reward values needed");
 
         // set Project bounty values
         uint256 currentBountyId = _bountyId.current();
@@ -192,6 +207,7 @@ contract R3ktify is AccessControl {
 
         // write bounty to storage
         bounties[address(msg.sender)].push(_projectBounty);
+        projectBounties.push(_projectBounty);
 
         // increment _bountyId
         _bountyId.increment();
@@ -205,12 +221,12 @@ contract R3ktify is AccessControl {
         address projectAddress,
         string memory _reportURI,
         uint8 _severityLevel
-    ) public onlyR3ktifierRole(address(msg.sender)) {
+    ) public onlyR3ktifierRole(msg.sender) {
         // revert if uri = empty string, _severityLevel out of Severity enum range
         require(bytes(_reportURI).length != 0, "Project URI needed");
         require(_severityLevel < 5, "Invalid severity level");
         require(
-            bounties[projectAddress][bountyId].bountyId == bountyId,
+            projectBounties[bountyId].bountyId == bountyId,
             "Submitting to wrong project"
         );
 
@@ -266,11 +282,11 @@ contract R3ktify is AccessControl {
     // TODO: Implement rewardR3ktifier function (only PROJECT_ROLE),
     // TODO: recieve reward and reportID. Send reward to r3ktifier address and set rewardStatus to rewarded
     //? args = reportID (reward would be gotten via msg.value)
-    function rewardR3ktifier(uint256 bountyId, uint256 reportId)
-        public
-        payable
-        onlyProjectRole(address(msg.sender))
-    {
+    function rewardR3ktifier(
+        address projectAddress,
+        uint256 bountyId,
+        uint256 reportId
+    ) public payable onlyProjectRole(address(msg.sender)) {
         // fetch reports data
         Report memory _tempReport = reports[bountyId][reportId];
 
@@ -281,8 +297,12 @@ contract R3ktify is AccessControl {
             "R3ktifier temporarily/permanantly banned"
         );
         require(
+            hasRole(R3KTIFIER_ROLE, _tempReport.r3ktifier),
+            "Not a r3ktifier"
+        );
+        require(
             msg.value >=
-                bounties[address(msg.sender)][bountyId].rewardBreakdown[
+                bounties[address(projectAddress)][bountyId].rewardBreakdown[
                     uint8(_tempReport.level)
                 ],
             "Wrong reward for severity level"
@@ -300,7 +320,7 @@ contract R3ktify is AccessControl {
             bountyId,
             reportId,
             _tempReport.r3ktifier,
-            address(msg.sender)
+            address(projectAddress)
         );
     }
 
@@ -314,14 +334,34 @@ contract R3ktify is AccessControl {
     }
 
     function getAllProjects() public view returns (address[] memory) {
-        return projects;
+        return projectAddresses;
     }
 
     // TODO: Implement getReports function, (only PROJECT_ROLE),
-    function getReports() public onlyProjectRole(address(msg.sender)) {}
-    // TODO: and it should filter reports based on caller address
+    // TODO: and it should filter reports based on bountyID
+    function getReports(uint256 bountyId)
+        public
+        view
+        onlyProjectRole(address(msg.sender))
+        returns (Report[] memory)
+    {
+        return reports[bountyId];
+    }
 
     //! CONTROL FUNCTION
     //! Implement banR3ktifier function. Permananetly bans an address from the platform (set PERMANENT_BAN_ROLE)
+    // function permanentBan(address offenderAddress) public onlyOwner {
+    //     // revoke current role
+    // }
     //! Implement restrictR3ktifier function. Temporarily bans an address from submitting reports for a given time (set TEMPORARY_BAN_ROLE)
+
+    function hasRole(bytes32 role, address account) public view returns (bool) {
+        return role == _roles[account];
+    }
+
+    function setAdminRole(bytes32 role, address account) private {
+        _roles[account] = role;
+
+        emit RoleGranted(role, account, msg.sender);
+    }
 }
