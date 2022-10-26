@@ -7,7 +7,6 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 
 contract R3ktify is Ownable {
-    // using ByteHasher for bytes;
     using Counters for Counters.Counter;
     Counters.Counter private _bountyId;
     Counters.Counter private _reportId;
@@ -24,9 +23,6 @@ contract R3ktify is Ownable {
     // account types
     bytes32 public constant PROJECT = keccak256("PROJECT");
     bytes32 public constant R3KTIFIER = keccak256("R3KTIFIER");
-
-    // immutables
-    // IWorldID internal immutable worldId;
 
     // temporary ban time
     uint256 public constant TEMPORARY_BAN_TIME = 24 hours;
@@ -60,7 +56,7 @@ contract R3ktify is Ownable {
         uint256 bountyId;
         uint256 submissionCount;
         uint256[5] rewardBreakdown;
-        string projectURI;
+        string bountyURI;
     }
 
     // array
@@ -69,6 +65,7 @@ contract R3ktify is Ownable {
 
     // mappings
     mapping(address => bytes32) private _roles;
+    mapping(address => uint256) private _banTime;
     mapping(address => ProjectBounty[]) public bounties;
     mapping(uint256 => Report[]) public reports;
     mapping(address => bool) public registeredProjects;
@@ -76,20 +73,31 @@ contract R3ktify is Ownable {
 
     // events
     event RewardedR3ktifier(
-        uint256 bountyId,
+        uint256 indexed bountyId,
         uint256 reportId,
-        address r3ktifier,
-        address project
+        address indexed r3ktifier,
+        address indexed project
     );
 
-    // WorldID group IDs
+    event LiftBan(uint256 blocktime, address indexed offender, address amdin);
+
+    event BountyCreated(string bountyURI, address indexed _projectAddress);
+
+    event ReportSubmitted(
+        uint256 indexed bountyId,
+        string reportURI,
+        address indexed r3ktifierAddress
+    );
+
+    event ValidatedReport(
+        uint256 indexed bountyId,
+        uint256 indexed reportId,
+        string _reportURI,
+        bool _valid
+    );
+
     uint256 internal immutable projectGroupId = 1;
     uint256 internal immutable r3ktifierGroupId = 2;
-
-    // errors
-    // error alreadyRegistered;
-    // error notAProject;
-    // error notAR3ktifier;
 
     // events
     event RoleGranted(
@@ -112,6 +120,15 @@ contract R3ktify is Ownable {
     }
 
     modifier onlyR3ktifierRole(address account) {
+        // revert if msg.sender is banned
+        require(
+            !hasRole(TEMPORARY_BAN_ROLE, account),
+            "Account temporarily banned"
+        );
+        require(
+            !hasRole(PERMANENT_BAN_ROLE, account),
+            "Account permanently banned"
+        );
         // revert if msg.sender is not a R3ktifier
         require(hasRole(R3KTIFIER_ROLE, account), "Not a R3KTIFIER");
         _;
@@ -120,13 +137,6 @@ contract R3ktify is Ownable {
     constructor() {
         setAdminRole(ADMIN_ROLE, msg.sender);
     }
-
-    // TODO: Implement register function, should accept accountType (project, r3ktifier)
-    // TODO: and assign respective role to the account
-    // address input,
-    //     uint256 root,
-    //     uint256 nullifierHash,
-    //     uint256[8] calldata proof
 
     function register(string memory accountType, address accountAddress)
         public
@@ -142,56 +152,31 @@ contract R3ktify is Ownable {
 
         // check if user is already registered, revert if true.
         require(
-            !registeredProjects[accountAddress] ||
-                !registeredR3ktifiers[accountAddress]
+            !hasRole(PROJECT_ROLE, accountAddress) ||
+                !hasRole(R3KTIFIER_ROLE, accountAddress),
+            "Already registered"
         );
 
         if (_accountType == PROJECT) {
-            // verify user
-            // worldId.verifyProof(
-            //     root,
-            //     projectGroupId,
-            //     abi.encodePacked(input).hashToField(),
-            //     nullifierHash,
-            //     abi.encodePacked(address(this)).hashToField(),
-            //     proof
-            // );
-
-            // add the user to the registeredProjects and set role
-            registeredProjects[address(accountAddress)] = true;
-
             // add msg.sender to projects array
             _roles[accountAddress] = PROJECT_ROLE;
             projectAddresses.push(accountAddress);
 
             emit RoleGranted(PROJECT_ROLE, msg.sender, address(this));
         } else {
-            // verify user
-            // worldId.verifyProof(
-            //     root,
-            //     r3ktifierGroupId,
-            //     abi.encodePacked(input).hashToField(),
-            //     nullifierHash,
-            //     abi.encodePacked(address(this)).hashToField(),
-            //     proof
-            // );
-
             // add the user to the registeredR3ktifiers and set role
             _roles[accountAddress] = R3KTIFIER_ROLE;
-            registeredR3ktifiers[accountAddress] = true;
 
             emit RoleGranted(R3KTIFIER_ROLE, accountAddress, msg.sender);
         }
     }
 
-    // TODO: Implement createBounty function (only PROJECT_ROLE)
-    //? args = rewardBreakdown and projectURI
     function createBounty(
-        string memory _projectURI,
+        string memory bountyURI,
         uint256[5] calldata _rewardBreakdown
     ) public onlyProjectRole(address(msg.sender)) {
         // revert if uri = empty string and rewardBreakdown has 6 values
-        require(bytes(_projectURI).length != 0, "Project URI needed");
+        require(bytes(bountyURI).length != 0, "Project URI needed");
         require(_rewardBreakdown.length == 5, "5 reward values needed");
 
         // set Project bounty values
@@ -200,10 +185,8 @@ contract R3ktify is Ownable {
             bountyId: currentBountyId,
             submissionCount: 0,
             rewardBreakdown: _rewardBreakdown,
-            projectURI: _projectURI
+            bountyURI: bountyURI
         });
-
-        // push to ProjectBounty array in mapping
 
         // write bounty to storage
         bounties[address(msg.sender)].push(_projectBounty);
@@ -211,10 +194,9 @@ contract R3ktify is Ownable {
 
         // increment _bountyId
         _bountyId.increment();
-    }
 
-    // TODO: Implement submitReport function (only R3KTIFIER_ROLE).
-    //? args = reportUri, r3ktifier address, and severity level
+        emit BountyCreated(bountyURI, msg.sender);
+    }
 
     function submitReport(
         uint256 bountyId,
@@ -249,11 +231,10 @@ contract R3ktify is Ownable {
 
         // increment global report count
         _reportId.increment();
+
+        emit ReportSubmitted(bountyId, _reportURI, msg.sender);
     }
 
-    // TODO: Implement validate report function (only PROJECT_ROLE),
-    // TODO: can update valid and severity fields.
-    //? args = valid bool and severity level
     function validateReport(
         uint256 bountyId,
         uint256 reportId,
@@ -277,11 +258,10 @@ contract R3ktify is Ownable {
 
         // set report to new copy with updated values
         reports[bountyId][reportId] = _tempReport;
+
+        emit ValidatedReport(bountyId, reportId, _reportURI, _valid);
     }
 
-    // TODO: Implement rewardR3ktifier function (only PROJECT_ROLE),
-    // TODO: recieve reward and reportID. Send reward to r3ktifier address and set rewardStatus to rewarded
-    //? args = reportID (reward would be gotten via msg.value)
     function rewardR3ktifier(
         address projectAddress,
         uint256 bountyId,
@@ -324,7 +304,6 @@ contract R3ktify is Ownable {
         );
     }
 
-    // TODO: Impplement getAllBounties function
     function getAllBountiesForAddress(address _projectBounty)
         public
         view
@@ -337,8 +316,6 @@ contract R3ktify is Ownable {
         return projectAddresses;
     }
 
-    // TODO: Implement getReports function, (only PROJECT_ROLE),
-    // TODO: and it should filter reports based on bountyID
     function getReports(uint256 bountyId)
         public
         view
@@ -348,12 +325,49 @@ contract R3ktify is Ownable {
         return reports[bountyId];
     }
 
-    //! CONTROL FUNCTION
-    //! Implement banR3ktifier function. Permananetly bans an address from the platform (set PERMANENT_BAN_ROLE)
-    // function permanentBan(address offenderAddress) public onlyOwner {
-    //     // revoke current role
-    // }
-    //! Implement restrictR3ktifier function. Temporarily bans an address from submitting reports for a given time (set TEMPORARY_BAN_ROLE)
+    function permanentBan(address offenderAddress)
+        public
+        onlyAdminRole(msg.sender)
+    {
+        // set offender role
+        _roles[offenderAddress] = PERMANENT_BAN_ROLE;
+    }
+
+    function temporaryBan(address offenderAddress, uint256 banDuration)
+        public
+        onlyAdminRole(msg.sender)
+    {
+        require(
+            (banDuration - block.timestamp) > TEMPORARY_BAN_TIME,
+            "Ban duration too short"
+        );
+        require(
+            !hasRole(TEMPORARY_BAN_ROLE, offenderAddress),
+            "Already on temporary ban"
+        );
+        // set offender role
+        _roles[offenderAddress] = TEMPORARY_BAN_ROLE;
+        _banTime[offenderAddress] = banDuration;
+    }
+
+    function liftBan(address offenderAddress) public onlyAdminRole(msg.sender) {
+        require(
+            hasRole(TEMPORARY_BAN_ROLE, offenderAddress),
+            "Address not on temporary ban"
+        );
+        require(
+            !hasRole(PERMANENT_BAN_ROLE, offenderAddress),
+            "Permanent ban can't be lifted"
+        );
+        require(
+            block.timestamp > _banTime[offenderAddress],
+            "Ban still active"
+        );
+
+        _roles[offenderAddress] = R3KTIFIER_ROLE;
+
+        emit LiftBan(block.timestamp, offenderAddress, msg.sender);
+    }
 
     function hasRole(bytes32 role, address account) public view returns (bool) {
         return role == _roles[account];
