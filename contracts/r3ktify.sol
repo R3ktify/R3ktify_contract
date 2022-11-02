@@ -140,7 +140,6 @@ contract R3ktify is Ownable {
 
     function register(string memory accountType, address accountAddress)
         public
-        payable
         onlyAdminRole(msg.sender)
     {
         bytes32 _accountType = keccak256(abi.encodePacked(accountType));
@@ -378,4 +377,8 @@ contract R3ktify is Ownable {
 
         emit RoleGranted(role, account, msg.sender);
     }
+
+    receive() external payable {}
+
+    fallback() external payable {}
 }

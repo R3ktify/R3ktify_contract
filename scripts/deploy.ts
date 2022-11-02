@@ -4,22 +4,26 @@
 // When running the script with `npx hardhat run <script>` you'll find the Hardhat
 // Runtime Environment's members available in the global scope.
 import { ethers } from "hardhat";
+import * as fs from "fs";
+import path from "path";
 
 async function main() {
-  // Hardhat always runs the compile task when running scripts with its command
-  // line interface.
-  //
-  // If this script is run directly using `node` you may want to call compile
-  // manually to make sure everything is compiled
-  // await hre.run('compile');
+  // Deploy R3ktify contract
+  const r3ktify = await ethers.getContractFactory("R3ktify");
+  const R3ktify = await r3ktify.deploy();
+  await R3ktify.deployed();
+  console.log("R3ktify deployed to: ", R3ktify.address);
 
-  // We get the contract to deploy
-  const Greeter = await ethers.getContractFactory("Greeter");
-  const greeter = await Greeter.deploy("Hello, Hardhat!");
+  const DeploymentInfo = `
+    export const R3ktifyAddress = "${R3ktify.address}"
+  `;
 
-  await greeter.deployed();
-
-  console.log("Greeter deployed to:", greeter.address);
+  console.log("Saving addresses to cache/mumbai_deploy.ts");
+  const data = JSON.stringify(DeploymentInfo);
+  fs.writeFileSync(
+    path.resolve(__dirname, "../cache/mumbai_deploy.ts"),
+    JSON.parse(data)
+  );
 }
 
 // We recommend this pattern to be able to use async/await everywhere
