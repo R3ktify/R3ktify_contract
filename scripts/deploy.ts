@@ -8,13 +8,20 @@ import * as fs from "fs";
 import path from "path";
 
 async function main() {
+  // Deploy VRFConsumer
+  const _vrf = await ethers.getContractFactory("VRFv2Consumer");
+  const vrf = await _vrf.deploy(2479);
+  await vrf.deployed();
+  console.log("Vrf address 🚀: ", vrf.address);
+
   // Deploy R3ktify contract
   const r3ktify = await ethers.getContractFactory("R3ktify");
-  const R3ktify = await r3ktify.deploy();
+  const R3ktify = await r3ktify.deploy(vrf.address);
   await R3ktify.deployed();
-  console.log("R3ktify deployed to: ", R3ktify.address);
+  console.log("R3ktify deployed 🚀: ", R3ktify.address);
 
   const DeploymentInfo = `
+    export const VRFConsumerAddress = "${vrf.address}"
     export const R3ktifyAddress = "${R3ktify.address}"
   `;
 

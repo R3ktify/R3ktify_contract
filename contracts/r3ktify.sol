@@ -1,15 +1,19 @@
 //SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.7;
-
-// import "@openzeppelin/contracts/access/AccessControl.sol";
+pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 
+interface VRFConsumer {
+    function getRequestStatusForLastRequest()
+        external
+        view
+        returns (uint256[] memory randomWords);
+}
+
 contract R3ktify is Ownable {
     using Counters for Counters.Counter;
-    Counters.Counter private _bountyId;
-    Counters.Counter private _reportId;
+    Counters.Counter private roundId;
 
     // roles
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
@@ -26,6 +30,9 @@ contract R3ktify is Ownable {
 
     // temporary ban time
     uint256 public constant TEMPORARY_BAN_TIME = 24 hours;
+
+    // VRFConsumer
+    VRFConsumer public _vrfConsumer;
 
     // enums
     enum Severity {
@@ -68,8 +75,6 @@ contract R3ktify is Ownable {
     mapping(address => uint256) private _banTime;
     mapping(address => ProjectBounty[]) public bounties;
     mapping(uint256 => Report[]) public reports;
-    mapping(address => bool) public registeredProjects;
-    mapping(address => bool) public registeredR3ktifiers;
 
     // events
     event RewardedR3ktifier(
@@ -134,8 +139,9 @@ contract R3ktify is Ownable {
         _;
     }
 
-    constructor() {
+    constructor(address _vrfAddress) {
         setAdminRole(ADMIN_ROLE, msg.sender);
+        _vrfConsumer = VRFConsumer(_vrfAddress);
     }
 
     function register(string memory accountType, address accountAddress)
@@ -179,7 +185,7 @@ contract R3ktify is Ownable {
         require(_rewardBreakdown.length == 5, "5 reward values needed");
 
         // set Project bounty values
-        uint256 currentBountyId = _bountyId.current();
+        uint256 currentBountyId = generateId();
         ProjectBounty memory _projectBounty = ProjectBounty({
             bountyId: currentBountyId,
             submissionCount: 0,
@@ -190,9 +196,6 @@ contract R3ktify is Ownable {
         // write bounty to storage
         bounties[address(msg.sender)].push(_projectBounty);
         projectBounties.push(_projectBounty);
-
-        // increment _bountyId
-        _bountyId.increment();
 
         emit BountyCreated(bountyURI, msg.sender);
     }
@@ -214,9 +217,11 @@ contract R3ktify is Ownable {
         // increment number of submissions for projectBounty
         bounties[projectAddress][bountyId].submissionCount++;
 
+        uint256 currentID = generateId();
+
         //  fill in report values
         Report memory _report = Report({
-            reportId: _reportId.current(),
+            reportId: currentID,
             rewardAmount: 0,
             reportUri: _reportURI,
             valid: false,
@@ -226,10 +231,7 @@ contract R3ktify is Ownable {
         });
 
         //  store in mapping in projectBounty
-        reports[_reportId.current()].push(_report);
-
-        // increment global report count
-        _reportId.increment();
+        reports[currentID].push(_report);
 
         emit ReportSubmitted(bountyId, _reportURI, msg.sender);
     }
@@ -322,6 +324,35 @@ contract R3ktify is Ownable {
         returns (Report[] memory)
     {
         return reports[bountyId];
+    }
+
+    function generateId() private returns (uint256) {
+        // get randomness value
+        uint256[] memory randomWords = _vrfConsumer
+            .getRequestStatusForLastRequest();
+
+        uint8 index = uint8(random() % randomWords.length);
+
+        uint256 randomness = (randomWords[index] % 999999) +
+            100000 +
+            index +
+            roundId.current();
+
+        return randomness;
+    }
+
+    function random() private returns (uint256) {
+        roundId.increment();
+        return
+            uint256(
+                keccak256(
+                    abi.encodePacked(
+                        block.difficulty,
+                        block.timestamp,
+                        roundId.current()
+                    )
+                )
+            );
     }
 
     function permanentBan(address offenderAddress)
