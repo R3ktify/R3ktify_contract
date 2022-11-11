@@ -5,6 +5,7 @@ import moment from "moment";
 import { R3ktify } from "../typechain-types/contracts/r3ktify.sol/R3ktify";
 
 let r3ktify: R3ktify;
+let vrf: any;
 const PROJECT_ROLE = ethers.utils.solidityKeccak256(
   ["string"],
   ["PROJECT_ROLE"]
@@ -26,11 +27,22 @@ function convertInput(date: string) {
   return _epoch;
 }
 
+describe("VRF", function () {
+  it("Should deploy the VRF", async function () {
+    const [operator] = await ethers.getSigners();
+    const VRF = await ethers.getContractFactory("VRFv2Consumer");
+    const _vrf = await VRF.deploy(1);
+    vrf = await _vrf.deployed();
+
+    expect(await vrf.owner()).to.equal(operator.address);
+  });
+});
+
 describe("r3ktifier", function () {
   it("Should return the new greeting once it's changed", async function () {
     const [operator] = await ethers.getSigners();
     const R3ktify = await ethers.getContractFactory("R3ktify");
-    const _r3ktify = await R3ktify.deploy();
+    const _r3ktify = await R3ktify.deploy(vrf.address);
     r3ktify = await _r3ktify.deployed();
 
     expect(await r3ktify.owner()).to.equal(operator.address);

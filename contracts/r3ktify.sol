@@ -1,6 +1,8 @@
 //SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.7;
+
+// import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 
@@ -14,6 +16,7 @@ interface VRFConsumer {
 contract R3ktify is Ownable {
     using Counters for Counters.Counter;
     Counters.Counter private roundId;
+    Counters.Counter private _reportId;
 
     // roles
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
@@ -68,13 +71,14 @@ contract R3ktify is Ownable {
 
     // array
     address[] public projectAddresses;
-    ProjectBounty[] public projectBounties;
+    // ProjectBounty[] public projectBounties;
 
     // mappings
     mapping(address => bytes32) private _roles;
     mapping(address => uint256) private _banTime;
-    mapping(address => ProjectBounty[]) public bounties;
+    mapping(address => mapping(uint256 => ProjectBounty)) public bounties;
     mapping(uint256 => Report[]) public reports;
+    mapping(uint256 => ProjectBounty) public projectBounties;
 
     // events
     event RewardedR3ktifier(
@@ -86,7 +90,11 @@ contract R3ktify is Ownable {
 
     event LiftBan(uint256 blocktime, address indexed offender, address amdin);
 
-    event BountyCreated(string bountyURI, address indexed _projectAddress);
+    event BountyCreated(
+        string bountyURI,
+        uint256 bountyId,
+        address indexed _projectAddress
+    );
 
     event ReportSubmitted(
         uint256 indexed bountyId,
@@ -194,10 +202,12 @@ contract R3ktify is Ownable {
         });
 
         // write bounty to storage
-        bounties[address(msg.sender)].push(_projectBounty);
-        projectBounties.push(_projectBounty);
+        bounties[address(msg.sender)][currentBountyId] = _projectBounty;
+        projectBounties[currentBountyId] = _projectBounty;
 
-        emit BountyCreated(bountyURI, msg.sender);
+        roundId.increment();
+
+        emit BountyCreated(bountyURI, currentBountyId, msg.sender);
     }
 
     function submitReport(
@@ -231,7 +241,8 @@ contract R3ktify is Ownable {
         });
 
         //  store in mapping in projectBounty
-        reports[currentID].push(_report);
+        reports[bountyId].push(_report);
+        _reportId.increment();
 
         emit ReportSubmitted(bountyId, _reportURI, msg.sender);
     }
@@ -293,6 +304,8 @@ contract R3ktify is Ownable {
         _tempReport.rewardAmount = msg.value;
         _tempReport.status = RewardStatus.rewarded;
 
+        reports[bountyId][reportId] = _tempReport;
+
         // send reward to r3ktifier
         (bool sent, ) = _tempReport.r3ktifier.call{value: msg.value}("");
         require(sent, "Failed to reward r3ktifier");
@@ -305,12 +318,12 @@ contract R3ktify is Ownable {
         );
     }
 
-    function getAllBountiesForAddress(address _projectBounty)
+    function getAllBountyForAddress(address _projectBounty, uint256 bountyId)
         public
         view
-        returns (ProjectBounty[] memory)
+        returns (ProjectBounty memory)
     {
-        return bounties[_projectBounty];
+        return bounties[_projectBounty][bountyId];
     }
 
     function getAllProjects() public view returns (address[] memory) {
